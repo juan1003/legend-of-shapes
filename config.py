@@ -1,0 +1,10 @@
+WINDOW_WIDTH = 800
+WINDOW_HEIGHT = 600
+WINDOW_TITLE = "Legend of Shapes"
+TARGET_FPS = 60
+MAX_DELTA_TIME = 1 / 30
+BACKGROUND_COLOR = (30, 30, 40)
+
+# Development loadout: start with every base weapon available.
+UNLOCK_ALL_WEAPONS_FOR_TESTING = True
+TEST_STARTING_ARROWS = 50
