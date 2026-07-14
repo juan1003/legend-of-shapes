@@ -7,6 +7,7 @@ import pygame
 import config
 from engine.camera import Camera
 from engine.input import Input
+from engine.renderer3d import Renderer3D
 from engine.scene import Scene
 from game import constants as C
 from game.cutscene import EndingCutscene
@@ -44,6 +45,7 @@ class GameScene(Scene):
         self.message_timer = 0.0
         self.font = pygame.font.SysFont(None, 24)
         self.title_font = pygame.font.SysFont(None, 48)
+        self.renderer = Renderer3D((config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         self.projectiles: list[Projectile] = []
         self.enemy_projectiles: list[EnemyProjectile] = []
         self._load_map(self.current_map_id, spawn_transition=None)
@@ -320,28 +322,17 @@ class GameScene(Scene):
         return False
 
     def draw(self, screen: pygame.Surface) -> None:
-        screen.fill((20, 24, 32))
-        offset = self.camera.offset
-
-        self.world.draw(screen, offset)
-
-        for pickup in self.pickups:
-            pickup.draw(screen, offset)
-
-        if self.current_map_id == C.MAP_OVERWORLD:
-            for npc in self.npcs:
-                npc.draw(screen, offset)
-
-        for enemy in self.enemies:
-            enemy.draw(screen, offset)
-
-        for projectile in self.projectiles:
-            projectile.draw(screen, offset)
-
-        for projectile in self.enemy_projectiles:
-            projectile.draw(screen, offset)
-
-        self.player.draw(screen, offset)
+        visible_npcs = self.npcs if self.current_map_id == C.MAP_OVERWORLD else ()
+        self.renderer.draw_scene(
+            screen=screen,
+            world=self.world,
+            player=self.player,
+            pickups=self.pickups,
+            npcs=visible_npcs,
+            enemies=self.enemies,
+            projectiles=self.projectiles,
+            enemy_projectiles=self.enemy_projectiles,
+        )
         self._draw_hud(screen)
         self._draw_boss_health_bar(screen)
 
