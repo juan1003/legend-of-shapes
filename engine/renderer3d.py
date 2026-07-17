@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable
 
@@ -32,41 +33,53 @@ class Box:
     color: Color
     elevation: float = 0.0
 
-    @property
-    def sort_depth(self) -> float:
-        return self.x + self.z
 
-
-class IsometricCamera:
-    """Projects 3D world coordinates to the Pygame display surface."""
+class PerspectiveCamera:
+    """A following perspective camera for the X/Z game world."""
 
     def __init__(
         self,
         viewport_size: tuple[int, int],
-        scale: float = 1.0,
+        field_of_view: float = 60.0,
     ) -> None:
         self.viewport_size = viewport_size
-        self.scale = scale
         self.target = pygame.Vector2()
-        self.screen_anchor = pygame.Vector2(
-            viewport_size[0] / 2,
-            viewport_size[1] * 0.48,
+        self.position = pygame.Vector3()
+        self.forward = pygame.Vector3(0, 0, 1)
+        self.right = pygame.Vector3(1, 0, 0)
+        self.up = pygame.Vector3(0, 1, 0)
+        self.focal_length = viewport_size[1] / (
+            2 * math.tan(math.radians(field_of_view) / 2)
         )
 
     def follow(self, target: pygame.Vector2) -> None:
         self.target.update(target)
+        look_at = pygame.Vector3(target.x, 16, target.y)
+        self.position = look_at + pygame.Vector3(-390, 330, -390)
+        self.forward = (look_at - self.position).normalize()
+        world_up = pygame.Vector3(0, 1, 0)
+        self.right = self.forward.cross(world_up).normalize()
+        self.up = self.right.cross(self.forward).normalize()
 
     def project(self, x: float, y: float, z: float) -> Point:
-        """Project an X/Y/Z point, where Y is vertical and X/Z is ground."""
-        relative_x = x - self.target.x
-        relative_z = z - self.target.y
-        screen_x = self.screen_anchor.x + (relative_x - relative_z) * self.scale
+        """Project an X/Y/Z point, where Y is the vertical axis."""
+        relative = pygame.Vector3(x, y, z) - self.position
+        depth = max(1.0, relative.dot(self.forward))
+        camera_x = relative.dot(self.right)
+        camera_y = relative.dot(self.up)
+        screen_x = (
+            self.viewport_size[0] / 2
+            + camera_x * self.focal_length / depth
+        )
         screen_y = (
-            self.screen_anchor.y
-            + (relative_x + relative_z) * self.scale * 0.5
-            - y * self.scale
+            self.viewport_size[1] * 0.48
+            - camera_y * self.focal_length / depth
         )
         return round(screen_x), round(screen_y)
+
+    def depth(self, x: float, y: float, z: float) -> float:
+        relative = pygame.Vector3(x, y, z) - self.position
+        return relative.dot(self.forward)
 
 
 class Renderer3D:
@@ -74,10 +87,10 @@ class Renderer3D:
 
     SKY_COLOR = (28, 38, 57)
     VOID_COLOR = (18, 22, 30)
-    FLOOR_RADIUS = 18
+    FLOOR_RADIUS = 14
 
     def __init__(self, viewport_size: tuple[int, int]) -> None:
-        self.camera = IsometricCamera(viewport_size, scale=1.05)
+        self.camera = PerspectiveCamera(viewport_size)
 
     def draw_scene(
         self,
@@ -97,7 +110,15 @@ class Renderer3D:
 
         boxes = list(self._world_boxes(world))
         boxes.extend(self._entity_boxes(player, pickups, npcs, enemies))
-        for box in sorted(boxes, key=lambda item: item.sort_depth):
+        for box in sorted(
+            boxes,
+            key=lambda item: self.camera.depth(
+                item.x,
+                item.elevation + item.height / 2,
+                item.z,
+            ),
+            reverse=True,
+        ):
             self._draw_box(screen, box)
 
         self._draw_projectiles(screen, projectiles, enemy_projectiles)
@@ -124,7 +145,15 @@ class Renderer3D:
             for z in range(start_z, end_z)
             for x in range(start_x, end_x)
         )
-        for x, z in sorted(tiles, key=lambda tile: sum(tile)):
+        for x, z in sorted(
+            tiles,
+            key=lambda tile: self.camera.depth(
+                (tile[0] + 0.5) * C.TILE_SIZE,
+                0,
+                (tile[1] + 0.5) * C.TILE_SIZE,
+            ),
+            reverse=True,
+        ):
             tile = world.get_tile(x, z)
             color = C.TILE_COLORS.get(tile, (80, 80, 80))
             self._draw_ground_tile(screen, x, z, self._floor_color(tile, color))
@@ -255,25 +284,25 @@ class Renderer3D:
         ]
         top_points = [self.camera.project(x, top, z) for x, z in corners]
 
-        right_face = (
-            bottom_points[1],
-            bottom_points[2],
-            top_points[2],
-            top_points[1],
-        )
-        left_face = (
-            bottom_points[2],
+        x_face = (
             bottom_points[3],
+            bottom_points[0],
+            top_points[0],
             top_points[3],
-            top_points[2],
         )
-        pygame.draw.polygon(screen, self._shade(box.color, 0.62), right_face)
-        pygame.draw.polygon(screen, self._shade(box.color, 0.78), left_face)
+        z_face = (
+            bottom_points[0],
+            bottom_points[1],
+            top_points[1],
+            top_points[0],
+        )
+        pygame.draw.polygon(screen, self._shade(box.color, 0.62), x_face)
+        pygame.draw.polygon(screen, self._shade(box.color, 0.78), z_face)
         pygame.draw.polygon(screen, self._shade(box.color, 1.12), top_points)
 
         outline = self._shade(box.color, 0.42)
-        pygame.draw.polygon(screen, outline, right_face, width=1)
-        pygame.draw.polygon(screen, outline, left_face, width=1)
+        pygame.draw.polygon(screen, outline, x_face, width=1)
+        pygame.draw.polygon(screen, outline, z_face, width=1)
         pygame.draw.polygon(screen, outline, top_points, width=1)
 
     def _draw_projectiles(
